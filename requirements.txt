@@ -1,0 +1,5 @@
+shioaji
+redis
+streamlit
+pandas
+plotly
