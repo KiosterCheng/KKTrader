@@ -1,5 +1,14 @@
 # 📊 KKTrader — 台指期貨即時監控與 K 線量化戰情室 🚀
 
+> [!IMPORTANT]
+> **🚀 開發環境與虛擬環境啟動重要提示（必看）**
+> 
+> 本專案使用指定的 Conda 虛擬環境執行 Python 程式。**在進行任何開發、語法驗證（如 `py_compile`）或執行腳本前，請務必先執行以下環境啟動器**：
+> *   **PowerShell 使用者**：請在專案根目錄下執行 `.\start_py.ps1` (或 `start_py.ps` 以載入環境)。
+> *   **Windows 傳統 CMD 使用者**：請雙擊或執行 `start_py.bat`。
+> 
+> 這些啟動器會自動加載位於 `C:\ProgramData\Anaconda3\Scripts\activate.bat` 的 Conda `base` 虛擬環境，確保 `shioaji`, `redis`, `pandas` 等關鍵套件在正確的路徑中。
+
 KKTrader 是一套專為台灣期貨市場（台指期貨）設計的 **工業級即時報價監控、K 線聚合與量化交易視覺化系統**。
 
 本系統採用 **生產者–消費者 (Producer-Consumer) 與微服務解耦 (Decoupling) 架構**，以高性能的 **Redis** 記憶體緩衝區作為高速中介通訊層，確保盤中高頻 Tick 報價採集、K 線切片指標計算、及視覺化展示之間 100% 獨立運行，徹底告別傳統單體交易程式卡死、漏單與閃退的缺陷。

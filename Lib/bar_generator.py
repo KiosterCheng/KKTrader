@@ -20,10 +20,18 @@ class Bar:
 
     def update(self, price: float, volume: int):
         """用新的成交更新 K 線"""
-        self.high = max(self.high, price)
-        self.low = min(self.low, price)
-        self.close = price
-        self.volume += volume
+        if self.volume == 0:
+            # 這是該區間的第一筆真實成交，重新校正開高低收為真實成交價
+            self.open = price
+            self.high = price
+            self.low = price
+            self.close = price
+            self.volume = volume
+        else:
+            self.high = max(self.high, price)
+            self.low = min(self.low, price)
+            self.close = price
+            self.volume += volume
 
     def to_dict(self) -> dict:
         return {
@@ -81,15 +89,59 @@ class BarGenerator:
         """核心進入點：處理一筆新 Tick
         
         參數:
-            price: 最新成交價 (float)
-            volume: 單筆成交量 (int)
-            time_str: Tick 時間，如 "09:01:23"
+             price: 最新成交價 (float)
+             volume: 單筆成交量 (int)
+             time_str: Tick 時間，如 "09:01:23"
         """
         # A. 處理 1分K
         self._process_bar_interval(price, volume, time_str, interval=1)
         
         # B. 處理 5分K
         self._process_bar_interval(price, volume, time_str, interval=5)
+
+    def check_and_finalize(self, time_str: str):
+        """由外部定時器主動調用，檢查是否需要跨越定稿 K 線（例如冷門時段交易量為0的情況）"""
+        # A. 處理 1分K
+        self._check_interval_boundary(time_str, interval=1)
+        
+        # B. 處理 5分K
+        self._check_interval_boundary(time_str, interval=5)
+
+    def _check_interval_boundary(self, time_str: str, interval: int):
+        """主動邊界檢查與定稿，若超期則發送 volume=0 的定稿訊號"""
+        current_bar = self.current_k1 if interval == 1 else self.current_k5
+        if current_bar is None:
+            return  # 尚未收到任何初始 Tick，無基準價，無法定稿
+
+        aligned_time = self._align_time(time_str, interval)
+        
+        # 如果當前系統對齊時間已經大於記憶體中的 K 線時間，說明該區間已結束，必須主動定稿
+        if aligned_time > current_bar.time:
+            limit = config.FT_K1_LIMIT if interval == 1 else config.FT_K5_LIMIT
+            latest_key = config.REDIS_FT_K1_LATEST if interval == 1 else config.REDIS_FT_K5_LATEST
+            list_key = f"FT:K1:List:{self.code}" if interval == 1 else f"FT:K5:List:{self.code}"
+            pub_channel = f"FT:K1:Final:{self.code}" if interval == 1 else f"FT:K5:Final:{self.code}"
+
+            # 1. 定稿上一根 K 線並寫入 Redis 歷史清單
+            bar_data = current_bar.to_dict()
+            json_data = json.dumps(bar_data)
+            
+            self.r.rpush(list_key, json_data)
+            self.r.ltrim(list_key, -limit, -1)  # 保留最近 N 根
+            
+            # 2. 發布定稿廣播
+            self.r.publish(pub_channel, json_data)
+            log(f"[{self.code}] (主動定時定稿) 定稿 {interval}分K: {bar_data['time']} | O={bar_data['open']}, H={bar_data['high']}, L={bar_data['low']}, C={bar_data['close']}, V={bar_data['volume']}")
+
+            # 3. 自動建立新一根 K 線，交易量初始化為 0，價格沿用上一根的收盤價 (上一根 close)
+            new_bar = Bar(aligned_time, price=current_bar.close, volume=0)
+            if interval == 1:
+                self.current_k1 = new_bar
+            else:
+                self.current_k5 = new_bar
+
+            # 更新 Redis 最新一根快照
+            self.r.hset(latest_key, self.code, new_bar.to_json())
 
     def _process_bar_interval(self, price: float, volume: int, time_str: str, interval: int):
         """通用區間 K 線更新邏輯"""
@@ -114,7 +166,6 @@ class BarGenerator:
             return
 
         # 2. 邊界檢查：跨越至下一根 K 線 (對齊後時間大於記憶體中的 K 線時間)
-        # 用字串比較大小是安全的，因為 "09:02:00" > "09:01:00"
         if aligned_time > current_bar.time:
             # 2.1 定稿上一根 K 線並寫入 Redis 歷史清單
             bar_data = current_bar.to_dict()

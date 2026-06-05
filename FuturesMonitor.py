@@ -233,6 +233,25 @@ def stage_heartbeat(r):
     log("期貨監控背景心跳已啟動")
 
 
+def stage_active_emitter(handler):
+    """Stage 6.5: 啟動主動定時定稿與補零 K 線引擎 (Active Emitter)"""
+    def emitter_task():
+        while True:
+            try:
+                # 獲取當前時間字串 HH:MM:SS
+                now_str = datetime.now().strftime("%H:%M:%S")
+                # 呼叫 handler 中所有商品的 check_and_finalize
+                for generator in handler.generators.values():
+                    generator.check_and_finalize(now_str)
+            except Exception as e:
+                log(f"Active Emitter 遭遇錯誤: {e}")
+            time.sleep(1)
+            
+    t = threading.Thread(target=emitter_task, daemon=True)
+    t.start()
+    log("主動定時定稿與補零 K 線引擎已啟動 (Active Emitter)")
+
+
 def stage_run():
     """Stage 7: 主迴圈等待"""
     log("期貨資料接收程式啟動完成，等待 Tick 報價與 K 線轉換中... (Ctrl+C 結束)")
@@ -267,6 +286,7 @@ def main():
         codes, code_map = stage_subscribe(api, targets)# 5. Subscribe contracts
         handler.set_subscribed_codes(codes, code_map)  # 綁定已訂閱的合約與對照字典給 Handler
         stage_heartbeat(r)                   # 6. Heartbeat
+        stage_active_emitter(handler)        # 6.5 Active Emitter
         stage_run()                          # 7. Run
 
     except Exception as e:

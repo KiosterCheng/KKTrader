@@ -299,7 +299,7 @@ def main():
     with st.expander("📋 點此查看與導出 K 線原始數據 (點對點核對數值專用)"):
         st.dataframe(
             df_filtered[['time', 'open', 'high', 'low', 'close', 'volume']].sort_index(ascending=False),
-            use_container_width=True
+            width='stretch'
         )
 
     # --- 6. 處理自動定時刷新 (Auto-Refresh Core) ---
