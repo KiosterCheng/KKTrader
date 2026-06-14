@@ -23,77 +23,39 @@ from datetime import datetime
 
 import pandas as pd
 from Lib import config
-from Lib.bar_generator import BarGenerator
+from Lib.base_monitor import BaseMonitor
 from Lib.connection import connect_redis, connect_shioaji, disconnect
 from Lib.logger import log
 
 
-class FuturesQuoteHandler:
+class FuturesQuoteHandler(BaseMonitor):
     """處理期貨 Tick 回呼並發送至 BarGenerator 的 Handler"""
     def __init__(self, api, r):
+        # 呼叫基類初始化，將資料源設為 "FT" (Futures)
+        super().__init__(source_name="FT", r=r)
         self.api = api
-        self.r = r
         self.subscribed_codes = []  # 已成功訂閱的真實合約代碼清單 (如 ["TXFF6", "TXFG6"])
         self.code_map = {}          # 對照字典 {"TXFF6": "TXFR1"}
-        
-        # 為每個合約建立專屬的 Bar 產生器 {code: BarGenerator}
-        self.generators = {}
+        self.tick_limit = config.FT_TICK_LIMIT
 
     def set_subscribed_codes(self, codes: list, code_map: dict):
         self.subscribed_codes = codes
         self.code_map = code_map
-        for real_code in codes:
-            alias = code_map.get(real_code, real_code)
-            self.generators[alias] = BarGenerator(alias, self.r)
-            log(f"已為 {alias} 初始化 BarGenerator")
+        # 將別名 (如 TXFR1, TXFR2) 傳送給基類的產生器初始化
+        aliases = [code_map.get(c, c) for c in codes]
+        self.init_generators(aliases)
 
     def _process_raw_tick(self, code, price, volume, total_vol):
         """核心 Tick 業務邏輯處理，將回呼介面與處理邏輯解耦"""
-        # [DEBUG LOG] 協助抓取夜盤報價接收狀態與代碼匹配
         log(f"[DEBUG TICK] 收到報價 -> 原始代碼: {code} | 價格: {price} | 單量: {volume} | 總量: {total_vol} | 訂閱列表: {self.subscribed_codes}")
         
         if not code or code not in self.subscribed_codes:
             return
 
         alias = self.code_map.get(code, code)
-        now_str = datetime.now().strftime("%H:%M:%S.%f")[:-3]  # 含毫秒的本機時間
-
-        try:
-            price = float(price)
-            volume = int(volume)
-            total_vol = int(total_vol)
-
-            # 1. 寫入 Snapshot 最新價快照
-            snapshot_data = {
-                "p": price,
-                "v": volume,
-                "t": now_str[:8],  # snapshot 使用標準 HH:MM:SS
-                "tv": total_vol
-            }
-            self.r.hset(config.REDIS_FT_SNAPSHOT_KEY, alias, json.dumps(snapshot_data))
-
-            # 2. Redis Pub/Sub 即時廣播 Tick
-            pub_data = {
-                "code": alias,
-                "price": price,
-                "volume": volume,
-                "time": now_str,
-                "total_vol": total_vol
-            }
-            self.r.publish(f"FT:Tick:{alias}", json.dumps(pub_data))
-
-            # 3. 若設定開啟，寫入 Tick 明細 List 並限長
-            if config.FT_SAVE_TICKS:
-                tick_list_key = f"FT:Ticks:{alias}"
-                self.r.rpush(tick_list_key, json.dumps(pub_data))
-                self.r.ltrim(tick_list_key, -config.FT_TICK_LIMIT, -1)
-
-            # 4. 餵入 BarGenerator 計算 1分K / 5分K
-            if alias in self.generators:
-                self.generators[alias].handle_tick(price, volume, now_str[:8])
-
-        except Exception as e:
-            log(f"處理期貨 Tick 錯誤 ({code}): {e}")
+        
+        # 呼叫基類的標準化處理流程
+        self.process_tick(alias, price, volume, total_vol)
 
     def on_tick_fop(self, exchange, tick):
         """1. 新版期權 v1 Tick 回呼"""
@@ -103,7 +65,6 @@ class FuturesQuoteHandler:
             getattr(tick, "volume", 1),
             getattr(tick, "total_volume", 0)
         )
-
 
     def on_quote(self, topic, quote):
         """3. 通用 Quote 廣播回呼"""
@@ -217,39 +178,7 @@ def stage_subscribe(api, targets) -> tuple:
     return subscribed_codes, code_map
 
 
-def stage_heartbeat(r):
-    """Stage 6: 啟動背景心跳"""
-    def heartbeat_task():
-        while True:
-            try:
-                # 存活時間 TTL 設為 10 秒，每 5 秒更新一次
-                r.set(config.REDIS_FT_HEARTBEAT_KEY, "running", ex=10)
-            except Exception:
-                pass
-            time.sleep(5)
-            
-    t = threading.Thread(target=heartbeat_task, daemon=True)
-    t.start()
-    log("期貨監控背景心跳已啟動")
-
-
-def stage_active_emitter(handler):
-    """Stage 6.5: 啟動主動定時定稿與補零 K 線引擎 (Active Emitter)"""
-    def emitter_task():
-        while True:
-            try:
-                # 獲取當前時間字串 HH:MM:SS
-                now_str = datetime.now().strftime("%H:%M:%S")
-                # 呼叫 handler 中所有商品的 check_and_finalize
-                for generator in handler.generators.values():
-                    generator.check_and_finalize(now_str)
-            except Exception as e:
-                log(f"Active Emitter 遭遇錯誤: {e}")
-            time.sleep(1)
-            
-    t = threading.Thread(target=emitter_task, daemon=True)
-    t.start()
-    log("主動定時定稿與補零 K 線引擎已啟動 (Active Emitter)")
+# (已由 BaseMonitor 基類替代，刪除冗餘程式碼)
 
 
 def stage_run():
@@ -285,8 +214,8 @@ def main():
         handler = stage_register(api, r)     # 4. Register callback
         codes, code_map = stage_subscribe(api, targets)# 5. Subscribe contracts
         handler.set_subscribed_codes(codes, code_map)  # 綁定已訂閱的合約與對照字典給 Handler
-        stage_heartbeat(r)                   # 6. Heartbeat
-        stage_active_emitter(handler)        # 6.5 Active Emitter
+        handler.start_heartbeat()            # 6. Heartbeat (自基類繼承)
+        handler.start_active_emitter()       # 6.5 Active Emitter (自基類繼承)
         stage_run()                          # 7. Run
 
     except Exception as e:

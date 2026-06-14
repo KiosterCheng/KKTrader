@@ -35,10 +35,10 @@ if %errorlevel% equ 0 (
     goto wait_and_start
 )
 
-:: 2.3 Try starting from current directory
-if exist "redis-server.exe" (
-    echo Found redis-server.exe in current directory, starting...
-    start /b redis-server.exe >nul 2>&1
+:: 2.3 Try starting from Redis subfolder
+if exist "Redis\redis-server.exe" (
+    echo Found redis-server.exe in Redis subfolder, starting...
+    start /d Redis /b redis-server.exe >nul 2>&1
     goto wait_and_start
 )
 

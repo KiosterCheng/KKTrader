@@ -49,13 +49,29 @@ class Bar:
 
 class BarGenerator:
     """處理單一商品 (Code) 的 1分K 與 5分K 聚合器"""
-    def __init__(self, code: str, r):
+    def __init__(self, code: str, r, source_name: str = "FT"):
         self.code = code
         self.r = r
+        self.source_name = source_name.upper()
         
         # 記憶體中當前進行中的 Bar (real-time bar)
         self.current_k1 = None  # type: Bar
         self.current_k5 = None  # type: Bar
+        
+        # 預先計算 Redis 鍵值與限制，支援多交易所/多資料源
+        if self.source_name == "FT":
+            self.limit1 = config.FT_K1_LIMIT
+            self.limit5 = config.FT_K5_LIMIT
+        else:
+            self.limit1 = 300
+            self.limit5 = 300
+            
+        self.k1_latest_key = f"{self.source_name}:K1:Latest"
+        self.k5_latest_key = f"{self.source_name}:K5:Latest"
+        self.k1_list_key = f"{self.source_name}:K1:List:{self.code}"
+        self.k5_list_key = f"{self.source_name}:K5:List:{self.code}"
+        self.k1_pub_channel = f"{self.source_name}:K1:Final:{self.code}"
+        self.k5_pub_channel = f"{self.source_name}:K5:Final:{self.code}"
 
     @staticmethod
     def _align_time(time_str: str, interval: int) -> str:
@@ -117,10 +133,10 @@ class BarGenerator:
         
         # 如果當前系統對齊時間已經大於記憶體中的 K 線時間，說明該區間已結束，必須主動定稿
         if aligned_time > current_bar.time:
-            limit = config.FT_K1_LIMIT if interval == 1 else config.FT_K5_LIMIT
-            latest_key = config.REDIS_FT_K1_LATEST if interval == 1 else config.REDIS_FT_K5_LATEST
-            list_key = f"FT:K1:List:{self.code}" if interval == 1 else f"FT:K5:List:{self.code}"
-            pub_channel = f"FT:K1:Final:{self.code}" if interval == 1 else f"FT:K5:Final:{self.code}"
+            limit = self.limit1 if interval == 1 else self.limit5
+            latest_key = self.k1_latest_key if interval == 1 else self.k5_latest_key
+            list_key = self.k1_list_key if interval == 1 else self.k5_list_key
+            pub_channel = self.k1_pub_channel if interval == 1 else self.k5_pub_channel
 
             # 1. 定稿上一根 K 線並寫入 Redis 歷史清單
             bar_data = current_bar.to_dict()
@@ -148,10 +164,10 @@ class BarGenerator:
         aligned_time = self._align_time(time_str, interval)
         current_bar = self.current_k1 if interval == 1 else self.current_k5
         
-        limit = config.FT_K1_LIMIT if interval == 1 else config.FT_K5_LIMIT
-        latest_key = config.REDIS_FT_K1_LATEST if interval == 1 else config.REDIS_FT_K5_LATEST
-        list_key = f"FT:K1:List:{self.code}" if interval == 1 else f"FT:K5:List:{self.code}"
-        pub_channel = f"FT:K1:Final:{self.code}" if interval == 1 else f"FT:K5:Final:{self.code}"
+        limit = self.limit1 if interval == 1 else self.limit5
+        latest_key = self.k1_latest_key if interval == 1 else self.k5_latest_key
+        list_key = self.k1_list_key if interval == 1 else self.k5_list_key
+        pub_channel = self.k1_pub_channel if interval == 1 else self.k5_pub_channel
 
         # 1. 首次初始化
         if current_bar is None:

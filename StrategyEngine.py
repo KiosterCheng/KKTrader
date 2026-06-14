@@ -83,6 +83,22 @@ def main():
         log(f"無法連線至 Redis: {e}")
         return
 
+    # 1.1 啟動背景心跳執行緒
+    import threading
+    import time
+    def heartbeat_task():
+        while True:
+            try:
+                r.set("status:strategy_engine:heartbeat", "running", ex=10)
+            except Exception:
+                pass
+            time.sleep(5)
+            
+    t_hb = threading.Thread(target=heartbeat_task, daemon=True)
+    t_hb.start()
+    log("已啟動背景心跳 (status:strategy_engine:heartbeat)")
+
+
     # 2. 建立訂閱器並訂閱定稿 K 線頻道
     # 【未來擴充指引】：
     #   - 股票訂閱： "K1:Final:stock:2330"

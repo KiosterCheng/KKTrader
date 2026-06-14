@@ -71,3 +71,11 @@ REDIS_FT_SNAPSHOT_KEY = "FT:Snapshot"
 REDIS_FT_HEARTBEAT_KEY = "status:ft_ingestor:heartbeat"
 REDIS_FT_K1_LATEST = "FT:K1:Latest"
 REDIS_FT_K5_LATEST = "FT:K5:Latest"
+
+# --- Telegram 參數 ---
+TELEGRAM_BOT_TOKEN = _cfg.get("Telegram", "bot_token", fallback="")
+TELEGRAM_CHAT_ID = _cfg.get("Telegram", "chat_id", fallback="")
+TELEGRAM_ENABLE_SEND = _cfg.getboolean("Telegram", "enable_send", fallback=False)
+TELEGRAM_SEND_INTERVAL = _cfg.getint("Telegram", "send_interval", fallback=5)
+TELEGRAM_SEND_BAR_COUNT = _cfg.getint("Telegram", "send_bar_count", fallback=100)
+

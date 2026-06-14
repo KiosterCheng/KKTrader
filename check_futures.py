@@ -66,12 +66,14 @@ def monitor_loop(r):
             buffer.write("============================================================\n")
             
             # 1. 檢查心跳
-            hb = r.get(REDIS_FT_HEARTBEAT_KEY)
-            if hb:
-                ttl = r.ttl(REDIS_FT_HEARTBEAT_KEY)
-                buffer.write(f"【接收程式狀態】: 🟢 正常運行中 (心跳 TTL: {ttl}s)\n")
-            else:
-                buffer.write("【接收程式狀態】: 🔴 已中斷或未啟動\n")
+            hb_ft = r.get(REDIS_FT_HEARTBEAT_KEY)
+            hb_strat = r.get("status:strategy_engine:heartbeat")
+            hb_tg = r.get("status:telegram_sender:heartbeat")
+            
+            buffer.write("【系統服務狀態】:\n")
+            buffer.write(f"  - 行情接收器 (Monitor): {'🟢 正常' if hb_ft else '🔴 已停止'} (TTL: {r.ttl(REDIS_FT_HEARTBEAT_KEY) if hb_ft else 0}s)\n")
+            buffer.write(f"  - 策略計算機 (Strategy): {'🟢 正常' if hb_strat else '🔴 已停止'} (TTL: {r.ttl('status:strategy_engine:heartbeat') if hb_strat else 0}s)\n")
+            buffer.write(f"  - 圖表發送器 (Telegram): {'🟢 正常' if hb_tg else '🔴 已停止'} (TTL: {r.ttl('status:telegram_sender:heartbeat') if hb_tg else 0}s)\n")
             
             # 2. 顯示 Snapshot 最新報價
             snapshot = r.hgetall(REDIS_FT_SNAPSHOT_KEY)
@@ -171,15 +173,14 @@ def main():
     print(f"Key 總數: {r.dbsize()}")
 
     # 2. 檢查心跳
-    hb = r.get(REDIS_FT_HEARTBEAT_KEY)
-    print_title("1. 心跳服務狀態")
-    if hb:
-        ttl = r.ttl(REDIS_FT_HEARTBEAT_KEY)
-        print(f"[🟢 正常] status:ft_ingestor:heartbeat = '{hb}' (TTL: {ttl}秒)")
-        print(" -> 期貨資料接收程式正在背景健康運作。")
-    else:
-        print("[🔴 異常] 未偵測到 status:ft_ingestor:heartbeat")
-        print(" -> 期貨資料接收程式 (FuturesMonitor.py) 目前處於停止狀態。")
+    hb_ft = r.get(REDIS_FT_HEARTBEAT_KEY)
+    hb_strat = r.get("status:strategy_engine:heartbeat")
+    hb_tg = r.get("status:telegram_sender:heartbeat")
+    
+    print_title("1. 各服務心跳狀態")
+    print(f"   - 行情接收器 (Monitor): {'[🟢 正常] (TTL: ' + str(r.ttl(REDIS_FT_HEARTBEAT_KEY)) + '秒)' if hb_ft else '[🔴 停止]'}")
+    print(f"   - 策略計算機 (Strategy): {'[🟢 正常] (TTL: ' + str(r.ttl('status:strategy_engine:heartbeat')) + '秒)' if hb_strat else '[🔴 停止]'}")
+    print(f"   - 圖表發送器 (Telegram): {'[🟢 正常] (TTL: ' + str(r.ttl('status:telegram_sender:heartbeat')) + '秒)' if hb_tg else '[🔴 停止]'}")
 
     # 3. 檢查即時 Snapshot
     print_title("2. 即時價格快照")

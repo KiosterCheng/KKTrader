@@ -111,6 +111,29 @@ def main():
     # --- 2. 側邊控制欄 (Sidebar Controllers) ---
     st.sidebar.header("🛠️ 儀表板控制台")
     
+    # 🔌 系統健康度面板
+    st.sidebar.subheader("🔌 系統服務狀態")
+    hb_ft = r.get("status:ft_ingestor:heartbeat")
+    hb_strat = r.get("status:strategy_engine:heartbeat")
+    hb_tg = r.get("status:telegram_sender:heartbeat")
+    
+    if hb_ft:
+        st.sidebar.success(f"🟢 行情接收 (Monitor) - 運行中")
+    else:
+        st.sidebar.error(f"🔴 行情接收 (Monitor) - 已停止")
+        
+    if hb_strat:
+        st.sidebar.success(f"🟢 策略計算 (Strategy) - 運行中")
+    else:
+        st.sidebar.error(f"🔴 策略計算 (Strategy) - 已停止")
+        
+    if hb_tg:
+        st.sidebar.success(f"🟢 圖表發送 (Telegram) - 運行中")
+    else:
+        st.sidebar.error(f"🔴 圖表發送 (Telegram) - 已停止")
+        
+    st.sidebar.markdown("---")
+    
     # A. 自動刷新頻率設定 (絲滑呼吸跳動核心 🚀)
     st.sidebar.subheader("🔄 自動刷新頻率")
     refresh_interval = st.sidebar.selectbox(
